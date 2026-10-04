@@ -1,0 +1,271 @@
+trans stack-fetch 1 . 6 . 1:类型安全的路径参数，不会丢失DTO类型
+在构建TypeScript APIs时，www.ftgoal.com www.jlygroup.net  www.iissbbs.com www.jpbara.com www.ycsjb.com www.skdaren.com我关心的事情之一不仅仅是响应是否是类型化的。
+
+这请求本身也应该被键入.
+
+考虑一下这个:
+await api.get<User>("/users/:id", {
+  params: {
+    id: userId,
+  },
+});
+乍一看，这似乎是类型安全的。
+
+但是有一个重要的问题:
+
+TypeScript是怎么知道的id实际存在于URL中？
+
+如果你不小心写了这个会怎么样？
+await api.get<User>("/users/:id", {
+  params: {
+    userId: 123,
+  },
+});
+响应类型正确。
+
+请求不是。
+
+这是我想解决的问题之一tanstack-fetch 1.6.1.
+
+什么是转栈取货？
+tanstack-fetch是一个类型化的Fetch客户机，它是围绕TanStack查询的心理模型设计的。
+
+这不是一个官方的TanStack包。
+
+这个想法很简单:
+
+保持原生获取API模型。
+直接返回数据。
+投掷打字FetchError代表HTTP失败。
+保留临时查询AbortSignal.
+支持SSR和Edge运行时。
+保持SSE和拦截器等高级功能的可组合性。
+我们的目标并不是要取代TanStack查询。
+
+相反:
+
+TanStack查询管理服务器状态。
+trans stack-fetch处理HTTP传输。
+
+路径参数的问题
+想象一个典型的API:
+GET /users/:id
+我们希望以下内容有效:
+type User = {
+  id: string;
+  name: string;
+};
+
+type Params = {
+  id: number;
+};
+
+await api.get<User, Params>("/users/:id", {
+  params: {
+    id: 123,
+  },
+});
+但是这些应该会失败:
+await api.get<User, Params>("/users/:id", {
+  params: {},
+});
+因为id失踪了。
+
+并且:
+await api.get<User, Params>("/users/:id", {
+  params: {
+    userId: 123,
+  },
+});
+因为URL包含:id，不是:userId.
+
+即使这样也会失败:
+await api.get<User, { userId: number }>("/users/:id", {
+  params: {
+    userId: 123,
+  },
+});
+类型和URL不一致。
+
+这正是TypeScript应该在请求到达后端之前发现的错误。
+
+1.6.1有什么新功能？
+版本1.6.1直接从路径引入类型化的URL参数。
+
+例如:
+type User = {
+  id: string;
+  name: string;
+};
+
+type Params = {
+  id: number;
+};
+
+await api.get<User, Params>("/users/:id", {
+  params: {
+    id: 123,
+  },
+});
+现在的关系是:
+/users/:id
+并且:
+{
+  id: number
+}
+是明确的。
+
+如果URL中不存在该参数，TypeScript会拒绝它。
+
+响应类型+参数类型
+您可以保留响应DTO和参数映射:
+await api.get<User, Params>("/users/:id", {
+  params: {
+    id,
+  },
+});
+第一个通用描述了响应:
+User
+第二个描述路径参数:
+Params
+这为您提供了两个独立的类型安全层:
+URL
+ ↓
+params
+ ↓
+HTTP request
+ ↓
+response
+ ↓
+DTO
+POST，PUT和PATCH呢？
+同样的想法也适用于写操作。
+
+例如:
+type User = {
+  id: string;
+  name: string;
+};
+
+type Params = {
+  id: number;
+};
+
+type UpdateUser = {
+  name: string;
+};
+
+await api.put<User, Params, UpdateUser>("/users/:id", {
+  params: {
+    id,
+  },
+  body: {
+    name: "Ada",
+  },
+});
+现在我们有三种不同的类型:
+User
+  ↓
+Response
+
+Params
+  ↓
+URL parameters
+
+UpdateUser
+  ↓
+Request body
+这使得合同更加明确。
+
+为什么不用路线图呢？
+的早期版本tanstack-fetch尝试路线图:
+createFetch<Routes>()
+版本1.6.1取消了这种方法。
+
+相反，API将路由直接放在请求旁边:
+api.get<User, Params>("/users/:id", {
+  params: { id },
+});
+我更喜欢这种方法，因为类型信息接近实际的HTTP操作。
+
+全球配置少，仪式少。
+
+API背后的类型限制
+这里有一个有趣的打字稿细节。
+
+TypeScript不能部分推断泛型参数。
+
+例如:
+api.get<User>("/users/:id")
+一次User时，TypeScript可能会丢失验证路径参数所需的文字信息。
+
+实际结果是:
+api.get<User, Params>("/users/:id", ...)
+允许tanstack-fetch要保留这两者:
+
+DTO回应道
+参数映射
+这就是API有意使用多种类型参数的原因。
+
+1.6.0有什么变化？
+最大的变化其实是一种简化。
+
+1.6.0
+API试验了:
+createFetch<Routes>()
+和路线图。
+
+1.6.1
+这种方法已经消失了。
+
+相反:
+api.get<User, { id: number }>("/users/:id", {
+  params: { id },
+});
+路线本身成为真理的源泉。
+
+这使得API更容易理解，并减少了全局类型配置的数量。
+
+提升
+如果您已经在使用tanstack-fetch:
+npm install tanstack-fetch@1.6.1
+或者:
+pnpm add tanstack-fetch@1.6.1
+为什么这很重要
+类型安全通常是根据响应对象来讨论的:
+User
+Product
+Order
+但是HTTP请求不仅仅是响应。
+
+它具有:
+Method
+URL
+Path parameters
+Query parameters
+Request body
+Headers
+Response
+Errors
+如果只有响应是类型化的，那么API契约的很大一部分仍然是隐式的。
+
+随着tanstack-fetch1.6.1，目标是使该契约的另一部分明确:
+/users/:id
+       ↓
+   { id: number }
+像这样的小API细节可以防止令人惊讶的常见运行时错误。
+
+最后的想法
+tanstack-fetch最初是一个围绕Fetch API的小型类型化包装器。
+
+随着时间的推移，焦点已经转向更具体的东西:
+
+使HTTP传输可预测、类型化，并自然地与TanStack Query一起使用。
+
+版本1.6.1是朝着这个方向迈出的又一步。
+
+不是一个很大的特点。
+
+而不是另一个抽象层。
+
+重要的是更好的类型安全。
